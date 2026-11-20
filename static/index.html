@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Connector · Python Backend</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    min-height:100vh;display:flex;align-items:center;justify-content:center;
+    font-family:Segoe UI,Poppins,system-ui,sans-serif;background:#f0f2f8;
+  }
+  .container{
+    width:520px;max-width:95%;padding:28px 30px 32px;
+    background:rgba(255,255,255,.96);border-radius:28px;
+    box-shadow:0 20px 40px rgba(0,0,0,.15);
+  }
+  h1{text-align:center;color:#1e293b;font-size:26px;margin-bottom:24px}
+  .section{display:flex;flex-direction:column;gap:9px;margin-bottom:20px}
+  label.title{
+    font-weight:700;color:#334155;font-size:13px;
+    letter-spacing:.5px;text-transform:uppercase;
+  }
+  .rc-input{
+    width:100%;padding:13px 16px;border:2px solid #e2e8f0;
+    border-radius:18px;font-size:15px;background:#fff;
+  }
+  .rc-input:focus{outline:none;border-color:#0f7c8c;box-shadow:0 0 0 3px rgba(15,124,140,.1)}
+  .device-group{display:flex;gap:10px;flex-wrap:wrap}
+  .device-item{
+    display:flex;align-items:center;gap:8px;cursor:pointer;
+    padding:10px 15px;border-radius:30px;background:#f1f5f9;
+  }
+  .device-item input{width:18px;height:18px;cursor:pointer}
+  .divider{height:1px;background:#cbd5e1;margin:4px 0 20px}
+  #connectBtn{
+    width:100%;padding:15px;border:0;border-radius:30px;
+    font-size:17px;font-weight:800;cursor:pointer;color:white;
+    background:linear-gradient(115deg,#0b7b8a,#0f4c5f);
+  }
+  #connectBtn.connected{background:linear-gradient(115deg,#aa2e3e,#7a1f2c)}
+  #connectBtn:disabled{opacity:.6;cursor:not-allowed}
+  #status{
+    margin-top:14px;padding:10px;text-align:center;border-radius:20px;
+    background:#e2e8f0;color:#1e293b;font-size:12px;min-height:36px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .planet-section{margin-top:16px;padding-top:16px;border-top:1px solid #cbd5e1;display:none}
+  .planet-title{
+    font-weight:800;color:#334155;font-size:13px;
+    letter-spacing:.5px;margin-bottom:9px;text-transform:uppercase;
+  }
+  #planetList{
+    max-height:360px;overflow-y:auto;display:flex;
+    flex-direction:column;gap:5px;margin-top:8px;
+  }
+  .planet-row{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:8px;padding:7px 8px;background:#20203a;border-radius:5px;
+    border-left:3px solid #FFC926;
+  }
+  .planet-row.online{border-left-color:#58BA56}
+  .planet-name{
+    flex:1;min-width:0;color:#fff;font-size:12px;
+    font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .planet-online{width:7px;height:7px;border-radius:50%;background:#58BA56;flex:0 0 auto}
+  .auto-pop-btn{
+    border:0;border-radius:4px;padding:5px 8px;font-size:9px;
+    font-weight:800;cursor:pointer;white-space:nowrap;
+    background:#DDEE73;color:#1a1a2e;
+  }
+  .auto-pop-btn.active{background:#FF7866;color:#fff}
+  .empty-planets{
+    padding:11px 14px;border-radius:14px;background:#f8fafc;
+    color:#64748b;font-size:13px;text-align:center;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔌 Device Connector</h1>
+
+  <div class="section">
+    <label class="title">🔐 Recovery Code</label>
+    <input id="rcInput" class="rc-input" type="text"
+           placeholder="Enter Recovery Code" maxlength="10" autocomplete="off">
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <label class="title">⚙️ Select Device</label>
+    <div class="device-group">
+      <label class="device-item">
+        <input type="radio" name="platform" value="352" checked><span>🌐 Web</span>
+      </label>
+      <label class="device-item">
+        <input type="radio" name="platform" value="350"><span>📱 Android</span>
+      </label>
+      <label class="device-item">
+        <input type="radio" name="platform" value="360"><span>🍎 iOS</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <button id="connectBtn">🔌 CONNECT</button>
+  <div id="status">⚡ Ready to connect</div>
+
+  <div id="planetSection" class="planet-section">
+    <div class="planet-title">🌍 PLANETS</div>
+    <div id="planetList"><div class="empty-planets">No planets loaded</div></div>
+  </div>
+</div>
+
+<script>
+const API = ''; // same origin; use full URL if frontend hosted separately
+
+const rcInput = document.getElementById('rcInput');
+const connectBtn = document.getElementById('connectBtn');
+const statusEl = document.getElementById('status');
+const planetList = document.getElementById('planetList');
+const planetSection = document.getElementById('planetSection');
+const platformRadios = document.querySelectorAll('input[name="platform"]');
+
+let isConnected = false;
+let activePops = new Set();
+let pollTimer = null;
+
+function setStatus(t){ statusEl.textContent = t; }
+function getRC(){ return rcInput.value.trim().slice(0,10); }
+function getPlatform(){
+  for (const r of platformRadios) if (r.checked) return r.value;
+  return '352';
+}
+
+function setConnected(v){
+  isConnected = v;
+  connectBtn.textContent = v ? '🔌 DISCONNECT' : '🔌 CONNECT';
+  connectBtn.classList.toggle('connected', v);
+}
+
+async function api(path, body){
+  const r = await fetch(API + path, {
+    method: body ? 'POST' : 'GET',
+    headers: body ? {'Content-Type':'application/json'} : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+  return data;
+}
+
+async function doConnect(){
+  if (isConnected){
+    await doDisconnect();
+    return;
+  }
+  const rc = getRC();
+  if (!rc){ setStatus('❌ Enter Recovery Code'); return; }
+
+  connectBtn.disabled = true;
+  setStatus('🔌 Connecting to server...');
+  try {
+    const res = await api('/api/connect', { rc, platform: getPlatform() });
+    setStatus(`✅ Connected as ${res.username || 'user'} — loading planets...`);
+    setConnected(true);
+    startPolling(rc);
+  } catch (e){
+    setStatus('❌ ' + e.message);
+    setConnected(false);
+  } finally {
+    connectBtn.disabled = false;
+  }
+}
+
+async function doDisconnect(){
+  const rc = getRC();
+  if (!rc) return;
+  setStatus('🔌 Disconnecting...');
+  try { await api('/api/disconnect', { rc, platform: getPlatform() }); }
+  catch(e){ /* ignore */ }
+  setConnected(false);
+  stopPolling();
+  setStatus('🔌 Disconnected (planets & auto‑pop persist on server)');
+}
+
+function startPolling(rc){
+  stopPolling();
+  let attempts = 0;
+  pollTimer = setInterval(async () => {
+    attempts++;
+    try {
+      const st = await api(`/api/status/${rc}`);
+      if (st.connected){
+        const pl = await api(`/api/planets/${rc}`);
+        if (pl.planets && pl.planets.length){
+          renderPlanets(pl.planets, rc);
+          setStatus(`✅ ${pl.planets.length} planet(s) loaded`);
+          stopPolling();
+          return;
+        }
+      }
+      if (attempts > 30){ // ~60s
+        setStatus('⚠️ Planets not loaded yet — try reload button');
+        stopPolling();
+      } else {
+        setStatus(`⏳ Waiting for planets... (${attempts}s)`);
+      }
+    } catch (e){ /* keep polling */ }
+  }, 2000);
+}
+function stopPolling(){ if (pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
+
+function renderPlanets(planets, rc){
+  planetSection.style.display = 'block';
+  planetList.innerHTML = '';
+  if (!planets.length){
+    planetList.innerHTML = '<div class="empty-planets">No planets found</div>';
+    return;
+  }
+  for (const p of planets){
+    const row = document.createElement('div');
+    row.className = 'planet-row' + (p.online ? ' online' : '');
+
+    const name = document.createElement('span');
+    name.className = 'planet-name';
+    name.textContent = p.name;
+    name.title = p.name;
+
+    const right = document.createElement('div');
+    right.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+    if (p.online){
+      const dot = document.createElement('span');
+      dot.className = 'planet-online';
+      right.appendChild(dot);
+    }
+
+    const btn = document.createElement('button');
+    btn.className = 'auto-pop-btn';
+    btn.dataset.planetId = p.id;
+    const active = activePops.has(p.id);
+    btn.textContent = active ? 'STOP POP' : 'AUTO POP';
+    if (active){ btn.classList.add('active'); btn.style.background = '#FF7866'; btn.style.color = '#fff'; }
+
+    btn.onclick = async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      try {
+        if (activePops.has(p.id)){
+          await api('/api/autopop/stop', { rc, planet_id: p.id, planet_name: p.name });
+          activePops.delete(p.id);
+          btn.textContent = 'AUTO POP';
+          btn.classList.remove('active');
+          btn.style.background = '#DDEE73';
+          btn.style.color = '#1a1a2e';
+        } else {
+          await api('/api/autopop/start', { rc, planet_id: p.id, planet_name: p.name });
+          activePops.add(p.id);
+          btn.textContent = 'STOP POP';
+          btn.classList.add('active');
+          btn.style.background = '#FF7866';
+          btn.style.color = '#fff';
+        }
+      } catch (err){
+        setStatus('❌ Auto-pop error: ' + err.message);
+      }
+    };
+
+    right.appendChild(btn);
+    row.appendChild(name);
+    row.appendChild(right);
+    planetList.appendChild(row);
+  }
+}
+
+connectBtn.addEventListener('click', doConnect);
+rcInput.addEventListener('input', e => {
+  if (e.target.value.length > 10) e.target.value = e.target.value.slice(0, 10);
+});
+</script>
+</body>
+</html>
